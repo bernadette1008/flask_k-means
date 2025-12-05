@@ -114,6 +114,9 @@ def kmeans_api():
                     file.seek(0)
                     df = pd.read_csv(file, encoding='latin1')
 
+        # 원본 데이터 저장 (클러스터 상세 정보용)
+        df_original = df.copy()
+        
         df_transformed = df.copy()
         for col in df.columns:
             if not pd.api.types.is_numeric_dtype(df[col]):
@@ -137,7 +140,11 @@ def kmeans_api():
             return jsonify({"error": f"Y축 컬럼 '{y_col}'을 찾을 수 없습니다."}), 400
 
         cols = [x_col, y_col]
-        df_selected = df_transformed[cols].apply(pd.to_numeric, errors='coerce').dropna()
+        df_selected = df_transformed[cols].apply(pd.to_numeric, errors='coerce')
+        
+        # 유효한 인덱스 추적
+        valid_indices = df_selected.dropna().index
+        df_selected = df_selected.loc[valid_indices]
 
         if df_selected.shape[0] < k:
             return jsonify({"error": f"유효한 데이터가 {df_selected.shape[0]}개로 k값({k})보다 적습니다."}), 400
@@ -155,15 +162,22 @@ def kmeans_api():
         cluster_details = {}
         
         for cluster_id in range(k):
-            cluster_data = stats[stats['cluster'] == cluster_id]
+            cluster_mask = stats['cluster'] == cluster_id
+            cluster_data = stats[cluster_mask]
             cluster_stats[str(cluster_id)] = {
                 f"{x_col}_count": len(cluster_data),
                 f"{x_col}_mean": float(cluster_data[x_col].mean()),
                 f"{y_col}_mean": float(cluster_data[y_col].mean()),
             }
             
-            # 클러스터별 상세 데이터 저장 (최대 1000개)
-            cluster_records = cluster_data[[x_col, y_col]].head(1000).to_dict(orient='records')
+            # 클러스터에 속한 원본 데이터의 인덱스 가져오기
+            cluster_indices = cluster_data.index
+            
+            # 원본 데이터에서 해당 인덱스의 모든 컬럼 데이터 가져오기
+            original_cluster_data = df_original.loc[cluster_indices].copy()
+            
+            # NaN을 '-'로 변환하고 최대 1000개로 제한
+            cluster_records = original_cluster_data.head(1000).fillna('-').to_dict(orient='records')
             cluster_details[str(cluster_id)] = cluster_records
 
         fig, ax = plt.subplots(figsize=(10, 8))
